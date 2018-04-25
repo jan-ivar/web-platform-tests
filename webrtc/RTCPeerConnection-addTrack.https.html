@@ -5,6 +5,65 @@
 <script src="/resources/testharnessreport.js"></script>
 <script src="RTCPeerConnection-helper.js"></script>
 <script>
+function webrtc_test(testFunc, name) {
+  return promise_test(t => {
+    let streams = [];
+    let release = () => {
+      streams.forEach((stream) => {
+        stream.getTracks().forEach((track) => {
+          track.stop();
+        });
+      });
+      streams = [];
+    };
+
+
+    if (navigator.getUserMedia) {
+      let origGetUserMedia = navigator.getUserMedia.bind(navigator);
+      navigator.getUserMedia = (constraints, cb, eb) => {
+        origGetUserMedia(constraints, (stream) => {
+          streams.push(stream);
+          if (cb) {
+            cb.apply(null, [stream]);
+          }
+        }, eb);
+      };
+      navigator.getUserMedia.restore = () => {
+        navigator.getUserMedia = origGetUserMedia;
+        release();
+      };
+    }
+
+    let origMediaDevicesGetUserMedia =
+        navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = (constraints) => {
+      return origMediaDevicesGetUserMedia(constraints, (stream) => {
+        streams.push(stream);
+        return stream;
+      });
+    };
+    navigator.mediaDevices.getUserMedia.restore = () => {
+      navigator.mediaDevices.getUserMedia = origMediaDevicesGetUserMedia;
+      console.log('stopping gum');
+      release();
+    };
+
+    t.add_cleanup(() => {
+      if (navigator.getUserMedia) {
+        navigator.getUserMedia.restore();
+      }
+      navigator.mediaDevices.getUserMedia.restore();
+    });
+    return testFunc(t, name);
+  });
+}
+</script>
+<script>
+  webrtc_test(async t => {
+    const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  }, 'it releases the stream');
+</script>
+<script>
   'use strict';
 
   // Test is based on the following editor draft:
@@ -71,6 +130,7 @@
     const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const track = mediaStream.getTracks()[0];
     t.add_cleanup(() => track.stop());
+
     const sender = pc.addTrack(track, mediaStream);
     return {pc, track, sender};
   }
